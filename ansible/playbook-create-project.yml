@@ -1,0 +1,82 @@
+- name: Create new BOINC project
+  hosts: debian
+  vars:
+    url_base: "http://localhost"
+    project_name: boinc_tools
+    project_full_name: boinc_tools@server
+    project_desc: 'Project created with boinc-tools, https://github.com/asvdvl/boinc-tools'
+    delete_exist: false
+  tasks:
+    - name: Enshure thats BOINC is in place
+      ansible.builtin.stat:
+        path: ~/boinc
+      register: dir_info
+
+    - name: Enshure thats BOINC is in place(folder not empty)
+      ansible.builtin.fail:
+        msg: "Directory does not exist or is empty!"
+      when: not dir_info.stat.exists or dir_info.stat.isdir and dir_info.stat.children | length == 0
+
+    - name: Enshure thats project dont exist
+      ansible.builtin.stat:
+        path: ~/projects/
+      register: dir_info
+
+    - name: Enshure thats project dont exist(folder not empty)
+      ansible.builtin.fail:
+        msg: "Directory does not exist or is empty!"
+      when: not dir_info.stat.exists or dir_info.stat.isdir and dir_info.stat.children | length == 0
+
+    - name: Set drop params for make project command
+      ansible.builtin.set_fact:
+        additional_params: >
+          {%- if delete_exist -%} --delete_prev_inst --drop_db_first{%- endif -%}
+
+    - name: Run make_project
+      ansible.builtin.command:
+        cmd: ./make_project --db_passwd foobar99 --no_query {{ additional_params }} --url_base {{ url_base }} {{ project_name }} '{{ project_full_name }}'
+        chdir: ~/boinc/tools
+      changed_when: false
+      register: output
+
+    - name: Show output
+      ansible.builtin.debug:
+        var: output.stdout_lines
+
+    - name: Get base (home) path for root operations
+      ansible.builtin.command: echo $HOME
+      register: home_dir
+      changed_when: false
+      tags:
+        - a
+
+    - name: Enable server
+      ansible.builtin.copy:
+        src: '{{ home_dir.stdout }}/projects/{{ project_name }}/{{ project_name }}.httpd.conf'
+        dest: /etc/apache2/sites-enabled
+        remote_src: true
+        mode: u=rw,g=r,o=r
+      become: true
+
+    - name: Restart apache
+      ansible.builtin.systemd:
+        name: apache2.service
+        state: restarted
+      become: true
+
+    - name: Give a name for project
+      ansible.builtin.lineinfile:
+        path: './projects/{{ project_name }}/html/project/project.inc'
+        regexp: '^(.*)REPLACE WITH PROJECT NAME(.*)$'
+        line: '\1{{ project_name }}\2'
+        backrefs: true
+
+    - name: Add cron task
+      ansible.builtin.cron:
+        name: proj {{ project_name }} cron task
+        minute: '*/5'
+        job: 'cd {{ home_dir.stdout }}/projects/{{ project_name }}; {{ home_dir.stdout }}/projects/{{ project_name }}/bin/start --cron'
+      tags:
+        - a
+
+    
