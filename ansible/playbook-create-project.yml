@@ -6,6 +6,7 @@
     project_full_name: boinc_tools@server
     project_desc: 'Project created with boinc-tools, https://github.com/asvdvl/boinc-tools'
     delete_exist: false
+    ops_password: boinc
   tasks:
     - name: Enshure thats BOINC is in place
       ansible.builtin.stat:
@@ -15,17 +16,17 @@
     - name: Enshure thats BOINC is in place(folder not empty)
       ansible.builtin.fail:
         msg: "Directory does not exist or is empty!"
-      when: not dir_info.stat.exists or dir_info.stat.isdir and dir_info.stat.children | length == 0
+      when: not dir_info.stat.exists or not dir_info.stat.isdir
 
     - name: Enshure thats project dont exist
       ansible.builtin.stat:
         path: ~/projects/
       register: dir_info
 
-    - name: Enshure thats project dont exist(folder not empty)
+    - name: Enshure thats project dir exist
       ansible.builtin.fail:
         msg: "Directory does not exist or is empty!"
-      when: not dir_info.stat.exists or dir_info.stat.isdir and dir_info.stat.children | length == 0
+      when: not dir_info.stat.exists or not dir_info.stat.isdir
 
     - name: Set drop params for make project command
       ansible.builtin.set_fact:
@@ -76,7 +77,27 @@
         name: proj {{ project_name }} cron task
         minute: '*/5'
         job: 'cd {{ home_dir.stdout }}/projects/{{ project_name }}; {{ home_dir.stdout }}/projects/{{ project_name }}/bin/start --cron'
-      tags:
-        - a
 
-    
+
+    - name: Add platforms
+      ansible.builtin.command:
+        cmd: bin/xadd
+        chdir: ~/projects/{{ project_name }}
+      changed_when: false
+      register: output
+
+    - name: Show output
+      ansible.builtin.debug:
+        var: output.stdout_lines
+
+    - name: Add platforms
+      ansible.builtin.command:
+        cmd: htpasswd -cb .htpasswd boincadm {{ ops_password }}
+        chdir: ~/projects/{{ project_name }}/html/ops
+      changed_when: false
+
+    - name: Start project
+      ansible.builtin.command:
+        cmd: bin/start
+        chdir: ~/projects/{{ project_name }}
+      changed_when: false
